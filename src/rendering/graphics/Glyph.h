@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "SimpleGlyph.h"
 #include "core/BytesKey.h"
 #include "core/Font.h"
 #include "pag/types.h"
@@ -38,12 +39,6 @@ struct TextPaint {
   Color strokeColor = Black;
   float strokeWidth = 0;
   bool strokeOverFill = true;
-  std::string fontFamily;
-  std::string fontStyle;
-  float fontSize = 24;
-  bool fauxBold = false;
-  bool fauxItalic = false;
-  bool isVertical = false;
 };
 
 class Glyph;
@@ -55,8 +50,10 @@ typedef std::shared_ptr<Glyph> GlyphHandle;
  */
 class Glyph {
  public:
-  static std::vector<GlyphHandle> BuildFromText(const std::string& text,
-                                                const TextPaint& textPaint);
+  static std::vector<GlyphHandle> BuildFromText(
+      const std::vector<std::shared_ptr<SimpleGlyph>>& glyphs, const TextPaint& paint);
+
+  Glyph() = default;
 
   virtual ~Glyph() = default;
 
@@ -70,14 +67,14 @@ class Glyph {
    * Returns the Font object associated with this Glyph.
    */
   tgfx::Font getFont() const {
-    return textFont;
+    return simpleGlyph->getFont();
   }
 
   /**
    * Returns the id of this glyph in associated typeface.
    */
   tgfx::GlyphID getGlyphID() const {
-    return glyphId;
+    return simpleGlyph->getGlyphID();
   }
 
   /**
@@ -89,35 +86,35 @@ class Glyph {
    * Returns true if this glyph is for vertical text layouts.
    */
   bool isVertical() const {
-    return _isVertical;
+    return simpleGlyph->isVertical();
   }
 
   /**
    * Returns name of this glyph in utf8.
    */
   std::string getName() const {
-    return name;
+    return simpleGlyph->getName();
   }
 
   /**
    * Returns the advance for this glyph.
    */
   float getAdvance() const {
-    return advance;
+    return simpleGlyph->advance();
   }
 
   /**
    * Returns the recommended distance to reserve above baseline
    */
   float getAscent() const {
-    return ascent;
+    return simpleGlyph->ascent();
   }
 
   /**
    * Returns the recommended distance to reserve below baseline
    */
   float getDescent() const {
-    return descent;
+    return simpleGlyph->descent();
   }
 
   /**
@@ -125,7 +122,7 @@ class Glyph {
    * the exact bounds of this glyph.
    */
   const tgfx::Rect& getBounds() const {
-    return bounds;
+    return simpleGlyph->getBounds();
   }
 
   /**
@@ -224,18 +221,16 @@ class Glyph {
    */
   tgfx::Matrix getTotalMatrix() const;
 
+  const tgfx::Matrix& getExtraMatrix() const {
+    return simpleGlyph->extraMatrix();
+  }
+
+  void computeAtlasKey(tgfx::BytesKey* bytesKey, TextStyle style) const;
+
  private:
-  tgfx::GlyphID glyphId = 0;
-  tgfx::Font textFont = {};
+  std::shared_ptr<SimpleGlyph> simpleGlyph;
   // read only attributes:
-  float advance = 0;
-  float ascent = 0;
-  float descent = 0;
-  tgfx::Rect bounds = tgfx::Rect::MakeEmpty();
-  std::string name;
-  bool _isVertical = false;
   bool strokeOverFill = true;
-  tgfx::Matrix extraMatrix = tgfx::Matrix::I();  // for vertical text or fauxItalic.
   // writable attributes:
   tgfx::Matrix matrix = tgfx::Matrix::I();
   TextStyle textStyle = TextStyle::Fill;
@@ -244,8 +239,6 @@ class Glyph {
   Color strokeColor = Black;
   float strokeWidth = 0;
 
-  Glyph(tgfx::GlyphID glyphId, const std::string& name, const tgfx::Font& textFont,
-        const TextPaint& textPaint);
+  Glyph(std::shared_ptr<SimpleGlyph> simpleGlyph, const TextPaint& textPaint);
 };
-
 }  // namespace pag

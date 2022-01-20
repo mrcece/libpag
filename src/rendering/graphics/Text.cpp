@@ -22,6 +22,7 @@
 #include "core/PathEffect.h"
 #include "gpu/Canvas.h"
 #include "pag/file.h"
+#include "rendering/caches/RenderCache.h"
 
 namespace pag {
 static std::unique_ptr<tgfx::Paint> CreateFillPaint(const Glyph* glyph) {
@@ -82,6 +83,7 @@ static std::unique_ptr<TextRun> MakeTextRun(const std::vector<Glyph*>& glyphs) {
 }
 
 std::shared_ptr<Graphic> Text::MakeFrom(const std::vector<GlyphHandle>& glyphs,
+                                        std::shared_ptr<TextGlyphs> textGlyphs,
                                         const tgfx::Rect* calculatedBounds) {
   if (glyphs.empty()) {
     return nullptr;
@@ -134,11 +136,14 @@ std::shared_ptr<Graphic> Text::MakeFrom(const std::vector<GlyphHandle>& glyphs,
   if (textRuns.empty()) {
     return nullptr;
   }
-  return std::shared_ptr<Graphic>(new Text(textRuns, bounds, hasAlpha));
+  return std::shared_ptr<Graphic>(
+      new Text(glyphs, std::move(textRuns), bounds, hasAlpha, std::move(textGlyphs)));
 }
 
-Text::Text(const std::vector<TextRun*>& textRuns, const tgfx::Rect& bounds, bool hasAlpha)
-    : textRuns(textRuns), bounds(bounds), hasAlpha(hasAlpha) {
+Text::Text(std::vector<GlyphHandle> glyphs, std::vector<TextRun*> textRuns,
+           const tgfx::Rect& bounds, bool hasAlpha, std::shared_ptr<TextGlyphs> textGlyphs)
+    : glyphs(std::move(glyphs)), textRuns(std::move(textRuns)), bounds(bounds), hasAlpha(hasAlpha),
+      textGlyphs(std::move(textGlyphs)) {
 }
 
 Text::~Text() {
@@ -232,9 +237,99 @@ bool Text::getPath(tgfx::Path* path) const {
 void Text::prepare(RenderCache*) const {
 }
 
-void Text::draw(tgfx::Canvas* canvas, RenderCache*) const {
-  drawTextRuns(static_cast<tgfx::Canvas*>(canvas), 0);
-  drawTextRuns(static_cast<tgfx::Canvas*>(canvas), 1);
+static std::vector<TextStyle> GetGlyphStyles(const GlyphHandle& glyph) {
+  std::vector<TextStyle> styles = {};
+  if (glyph->getStyle() == TextStyle::Fill) {
+    styles.push_back(TextStyle::Fill);
+  } else if (glyph->getStyle() == TextStyle::Stroke) {
+    styles.push_back(TextStyle::Stroke);
+  } else {
+    if (glyph->getStrokeOverFill()) {
+      styles.push_back(TextStyle::Fill);
+      styles.push_back(TextStyle::Stroke);
+    } else {
+      styles.push_back(TextStyle::Stroke);
+      styles.push_back(TextStyle::Fill);
+    }
+  }
+  return styles;
+}
+
+void Text::draw(tgfx::Canvas* canvas, RenderCache* renderCache) const {
+  auto textAtlas = renderCache->getTextAtlas(textGlyphs.get());
+  if (textAtlas != nullptr) {
+    draw(canvas, textAtlas);
+  } else {
+    drawTextRuns(canvas, 0);
+    drawTextRuns(canvas, 1);
+  }
+}
+
+struct Parameters {
+  size_t pageIndex = 0;
+  std::vector<tgfx::Matrix> matrices;
+  std::vector<tgfx::Rect> rects;
+  std::vector<tgfx::Color> colors;
+};
+
+static void Draw(tgfx::Canvas* canvas, const TextAtlas* atlas, const Parameters& parameters) {
+  if (parameters.matrices.empty()) {
+    return;
+  }
+  auto atlasTexture = atlas->getAtlasTexture(parameters.pageIndex);
+  canvas->drawAtlas(atlasTexture.get(), &parameters.matrices[0], &parameters.rects[0],
+                    parameters.colors.empty() ? nullptr : &parameters.colors[0],
+                    parameters.matrices.size());
+}
+
+void Text::draw(tgfx::Canvas* canvas, const TextAtlas* textAtlas) const {
+  Parameters parameters = {};
+  for (auto& glyph : glyphs) {
+    if (!glyph->isVisible()) {
+      continue;
+    }
+    auto styles = GetGlyphStyles(glyph);
+    AtlasLocator locator;
+    for (auto style : styles) {
+      if (!textAtlas->getLocator(glyph, style, &locator)) {
+        continue;
+      }
+      if (parameters.pageIndex != locator.pageIndex) {
+        Draw(canvas, textAtlas, parameters);
+        parameters = {};
+        parameters.pageIndex = locator.pageIndex;
+      }
+      float strokeWidth = 0;
+      Color color = glyph->getFillColor();
+      if (style == TextStyle::Stroke) {
+        strokeWidth = glyph->getStrokeWidth();
+        color = glyph->getStrokeColor();
+      }
+      tgfx::Matrix invertedMatrix = tgfx::Matrix::I();
+      glyph->getExtraMatrix().invert(&invertedMatrix);
+      auto glyphBounds = glyph->getBounds();
+      invertedMatrix.mapRect(&glyphBounds);
+      auto matrix = tgfx::Matrix::I();
+      matrix.postScale((glyphBounds.width() + strokeWidth * 2) / locator.location.width(),
+                       (glyphBounds.height() + strokeWidth * 2) / locator.location.height());
+      matrix.postTranslate(glyphBounds.x() - strokeWidth, glyphBounds.y() - strokeWidth);
+      matrix.postConcat(glyph->getTotalMatrix());
+      parameters.matrices.push_back(matrix);
+      parameters.rects.push_back(locator.location);
+      if (glyph->getFont().getTypeface()->hasColor()) {
+        auto alpha = canvas->getAlpha();
+        canvas->setAlpha(alpha * glyph->getAlpha());
+        Draw(canvas, textAtlas, parameters);
+        parameters = {};
+        canvas->setAlpha(alpha);
+      } else {
+        auto color4f = ToTGFX(color);
+        color4f[3] = glyph->getAlpha();
+        parameters.colors.push_back(color4f);
+      }
+    }
+  }
+  Draw(canvas, textAtlas, parameters);
 }
 
 void Text::drawTextRuns(tgfx::Canvas* canvas, int paintIndex) const {
@@ -246,9 +341,9 @@ void Text::drawTextRuns(tgfx::Canvas* canvas, int paintIndex) const {
     }
     canvas->setMatrix(totalMatrix);
     canvas->concat(textRun->matrix);
-    auto glyphs = &textRun->glyphIDs[0];
+    auto ids = &textRun->glyphIDs[0];
     auto positions = &textRun->positions[0];
-    canvas->drawGlyphs(glyphs, positions, textRun->glyphIDs.size(), textRun->textFont, *textPaint);
+    canvas->drawGlyphs(ids, positions, textRun->glyphIDs.size(), textRun->textFont, *textPaint);
   }
   canvas->setMatrix(totalMatrix);
 }

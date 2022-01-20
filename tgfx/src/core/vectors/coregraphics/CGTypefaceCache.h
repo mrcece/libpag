@@ -18,17 +18,24 @@
 
 #pragma once
 
-#include "pag/file.h"
-#include "pag/pag.h"
-#include "rendering/caches/TextContent.h"
-#include "rendering/caches/TextGlyphs.h"
-#include "rendering/graphics/Recorder.h"
+#include <list>
+
+#include "core/Typeface.h"
 
 namespace pag {
-std::unique_ptr<TextContent> RenderTexts(const std::shared_ptr<TextGlyphs>& textGlyphs,
-                                         TextPathOptions* pathOption, TextMoreOptions* moreOption,
-                                         std::vector<TextAnimator*>* animators, Frame layerFrame);
+class CGTypefaceCache {
+ public:
+  static void Add(std::shared_ptr<Typeface> typeface);
 
-void CalculateTextAscentAndDescent(const TextDocument* textDocument, float* pMinAscent,
-                                   float* pMaxDescent);
+  static std::shared_ptr<Typeface> FindByPredicate(const std::function<bool(Typeface*)>& predicate);
+
+ private:
+  void add(std::shared_ptr<Typeface> typeface);
+
+  std::shared_ptr<Typeface> findByPredicate(const std::function<bool(Typeface*)>& predicate);
+
+  void purge();
+
+  std::list<std::shared_ptr<Typeface>> typefaces;
+};
 }  // namespace pag

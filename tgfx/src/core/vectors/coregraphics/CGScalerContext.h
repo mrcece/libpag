@@ -37,6 +37,8 @@ class CGScalerContext {
                                                bool fauxBold = false, bool fauxItalic = false,
                                                bool verticalText = false);
 
+  ~CGScalerContext();
+
   FontMetrics generateFontMetrics();
 
   GlyphMetrics generateGlyphMetrics(GlyphID glyphID);

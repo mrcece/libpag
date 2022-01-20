@@ -18,29 +18,48 @@
 
 #pragma once
 
-#include <unordered_map>
-#include "ContentCache.h"
 #include "TextGlyphs.h"
+#include "pag/types.h"
+#include "rendering/graphics/Glyph.h"
 
 namespace pag {
-class TextContentCache : public ContentCache {
- public:
-  explicit TextContentCache(TextLayer* layer);
-  TextContentCache(TextLayer* layer, ID cacheID, Property<TextDocumentHandle>* sourceText);
+class RenderCache;
+class Atlas;
 
- protected:
-  void excludeVaryingRanges(std::vector<TimeRange>* timeRanges) const override;
-  ID getCacheID() const override;
-  GraphicContent* createContent(Frame layerFrame) const override;
+struct AtlasLocator {
+  size_t pageIndex = 0;
+  tgfx::Rect location = tgfx::Rect::MakeEmpty();
+};
+
+class TextAtlas {
+ public:
+  static std::unique_ptr<TextAtlas> Make(const TextGlyphs* textGlyphs, RenderCache* renderCache,
+                                         float scale);
+
+  ~TextAtlas();
+
+  ID textGlyphsID() const {
+    return _textGlyphsID;
+  }
+
+  bool getLocator(const GlyphHandle& glyph, TextStyle style, AtlasLocator* locator) const;
+
+  std::shared_ptr<tgfx::Texture> getAtlasTexture(size_t pageIndex) const;
+
+  float scaleFactor() const {
+    return scale;
+  }
+
+  size_t memoryUsage() const;
 
  private:
-  void initTextGlyphs();
+  TextAtlas(ID textID, Atlas* maskAtlas, Atlas* colorAtlas, float scale)
+      : _textGlyphsID(textID), maskAtlas(maskAtlas), colorAtlas(colorAtlas), scale(scale) {
+  }
 
-  ID cacheID = 0;
-  Property<TextDocumentHandle>* sourceText;
-  TextPathOptions* pathOption;
-  TextMoreOptions* moreOption;
-  std::vector<TextAnimator*>* animators;
-  std::unordered_map<TextDocument*, std::shared_ptr<TextGlyphs>> textGlyphs;
+  ID _textGlyphsID = 0;
+  Atlas* maskAtlas = nullptr;
+  Atlas* colorAtlas = nullptr;
+  float scale = 1.0f;
 };
 }  // namespace pag

@@ -18,17 +18,50 @@
 
 #pragma once
 
+#include <unordered_map>
 #include "pag/file.h"
-#include "pag/pag.h"
-#include "rendering/caches/TextContent.h"
-#include "rendering/caches/TextGlyphs.h"
-#include "rendering/graphics/Recorder.h"
+#include "rendering/graphics/Glyph.h"
 
 namespace pag {
-std::unique_ptr<TextContent> RenderTexts(const std::shared_ptr<TextGlyphs>& textGlyphs,
-                                         TextPathOptions* pathOption, TextMoreOptions* moreOption,
-                                         std::vector<TextAnimator*>* animators, Frame layerFrame);
+TextPaint CreateTextPaint(const TextDocument* textDocument);
 
-void CalculateTextAscentAndDescent(const TextDocument* textDocument, float* pMinAscent,
-                                   float* pMaxDescent);
+class TextGlyphs {
+ public:
+  TextGlyphs(ID assetID, TextDocument* textDocument, float maxScale);
+
+  ID id() const {
+    return _id;
+  }
+
+  ID assetID() const {
+    return _assetID;
+  }
+
+  TextDocument* textDocument() const {
+    return _textDocument;
+  }
+
+  const std::vector<GlyphHandle>& maskAtlasGlyphs() const {
+    return _maskAtlasGlyphs;
+  }
+
+  const std::vector<GlyphHandle>& colorAtlasGlyphs() const {
+    return _colorAtlasGlyphs;
+  }
+
+  float maxScale() const {
+    return _maxScale;
+  }
+
+  std::vector<GlyphHandle> getGlyphs() const;
+
+ private:
+  ID _id = 0;
+  ID _assetID = 0;
+  TextDocument* _textDocument;
+  std::vector<std::shared_ptr<SimpleGlyph>> simpleGlyphs;
+  std::vector<GlyphHandle> _maskAtlasGlyphs;
+  std::vector<GlyphHandle> _colorAtlasGlyphs;
+  float _maxScale = 1.0f;
+};
 }  // namespace pag

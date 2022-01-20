@@ -20,6 +20,7 @@
 #include "CGScalerContext.h"
 #include "core/UTF.h"
 #include "core/utils/UniqueID.h"
+#include "CGTypefaceCache.h"
 
 namespace tgfx {
 std::string StringFromCFString(CFStringRef src) {
@@ -112,8 +113,16 @@ std::shared_ptr<CGTypeface> CGTypeface::Make(CTFontRef ctFont) {
   if (ctFont == nullptr) {
     return nullptr;
   }
-  auto typeface = std::shared_ptr<CGTypeface>(new CGTypeface(ctFont));
+  auto typeface = std::static_pointer_cast<CGTypeface>(
+      CGTypefaceCache::FindByPredicate([ctFont](Typeface* face) -> bool {
+        return CFEqual(ctFont, static_cast<CGTypeface*>(face)->ctFont);
+      }));
+  if (typeface) {
+    return typeface;
+  }
+  typeface = std::shared_ptr<CGTypeface>(new CGTypeface(ctFont));
   typeface->weakThis = typeface;
+  CGTypefaceCache::Add(typeface);
   return typeface;
 }
 
